@@ -9,6 +9,26 @@ class DataProcessor:
     
     def __init__(self):
         self.supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        self.column_mapping = {}  # Store original to cleaned column name mapping
+    
+    @staticmethod
+    def clean_column_name(col_name):
+        """
+        Clean column name by removing spaces and special characters
+        
+        Args:
+            col_name: Original column name
+        
+        Returns:
+            Cleaned column name (lowercase, no spaces, no special chars)
+        """
+        import re
+        # Convert to lowercase and replace spaces/special chars with underscores
+        cleaned = col_name.lower()
+        cleaned = re.sub(r'[\s\-\(\)\,\.\[\]\{\}\+\=\!\@\#\$\%\^\&\*\;\:\'\"\<\>\?\/\\\|\`\~]+', '_', cleaned)
+        # Remove leading/trailing underscores and collapse multiple underscores
+        cleaned = re.sub(r'_+', '_', cleaned).strip('_')
+        return cleaned
     
     def load_file_from_supabase(self, file_path):
         """
@@ -32,6 +52,25 @@ class DataProcessor:
             else:
                 raise ValueError(f"Unsupported file type: {file_path}")
             
+            # Debug: Print loaded data
+            print(f"Loaded file: {file_path}")
+            print(f"Original columns: {df.columns.tolist()}")
+            
+            # Clean column names immediately
+            original_columns = df.columns.tolist()
+            cleaned_columns = [self.clean_column_name(col) for col in original_columns]
+            
+            # Store mapping for reference
+            self.column_mapping = {orig: clean for orig, clean in zip(original_columns, cleaned_columns)}
+            
+            # Rename columns in DataFrame
+            df.columns = cleaned_columns
+            
+            print(f"Cleaned columns: {df.columns.tolist()}")
+            print(f"Column mapping: {self.column_mapping}")
+            print(f"Data types:\n{df.dtypes}")
+            print(f"First 3 rows:\n{df.head(3)}")
+            
             return df
         except Exception as e:
             raise Exception(f"Error loading file {file_path}: {str(e)}")
@@ -39,15 +78,16 @@ class DataProcessor:
     def get_schema_info(self, df):
         """
         Extract schema information from DataFrame
+        Note: Column names in df are already cleaned (no spaces or special chars)
         
         Args:
-            df: pandas DataFrame
+            df: pandas DataFrame with cleaned column names
         
         Returns:
             Schema information as a string
         """
         schema_lines = ["Table: data"]
-        schema_lines.append("Columns:")
+        schema_lines.append("Columns (cleaned names - no spaces or special characters):")
         
         for col in df.columns:
             dtype = str(df[col].dtype)
@@ -58,31 +98,46 @@ class DataProcessor:
     
     def execute_sql_on_dataframe(self, df, sql_query):
         """
-        Execute SQL query on pandas DataFrame using pandasql
+        Execute SQL query on pandas DataFrame
+        Note: Column names in df are already cleaned (no spaces or special chars)
         
         Args:
-            df: pandas DataFrame
-            sql_query: SQL query string
+            df: pandas DataFrame with cleaned column names
+            sql_query: SQL query string (should use cleaned column names)
         
         Returns:
-            Query results as pandas DataFrame
+            Query results as pandas DataFrame with cleaned column names
         """
         try:
-            # Use pandas operations to simulate SQL
-            # This is a simplified version - for production, consider using duckdb or pandasql
-            
-            # For now, we'll use a simple approach with pandas
-            # Replace 'data' table name with actual dataframe
             import sqlite3
+            import re
             
             # Create in-memory SQLite database
             conn = sqlite3.connect(':memory:')
             
-            # Write DataFrame to SQL
+            # Debug: Print DataFrame info before loading
+            print(f"DataFrame columns (already cleaned): {df.columns.tolist()}")
+            print(f"DataFrame shape: {df.shape}")
+            print(f"First few rows:\n{df.head()}")
+            
+            # Write DataFrame to SQL (columns are already cleaned)
             df.to_sql('data', conn, index=False, if_exists='replace')
             
-            # Execute query
-            result_df = pd.read_sql_query(sql_query, conn)
+            try:
+                # Clean up SQL query - remove quotes around table name
+                safe_query = sql_query.replace('"data"', 'data')
+                
+                print(f"Original SQL: {sql_query}")
+                print(f"Cleaned SQL: {safe_query}")
+                
+                # Execute query
+                result_df = pd.read_sql_query(safe_query, conn)
+                
+                print(f"Result columns: {result_df.columns.tolist()}")
+                print(f"Result data:\n{result_df}")
+            except Exception as query_error:
+                conn.close()
+                raise Exception(f"Error executing SQL query: {str(query_error)}")
             
             conn.close()
             

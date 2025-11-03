@@ -34,8 +34,31 @@ Instructions:
 1. Generate a valid SQL query that answers the question
 2. Use appropriate aggregations, filters, and grouping
 3. Return ONLY the SQL query without any explanation
-4. Use standard SQL syntax
-5. Ensure the query is optimized and efficient
+4. Use standard SQL syntax compatible with SQLite
+5. IMPORTANT: Column names are already cleaned (no spaces or special characters, all lowercase with underscores)
+6. IMPORTANT: Do NOT wrap column names in quotes - use them directly (e.g., employee_salary, department_name)
+7. The table name is "data" (you can use it with or without quotes)
+8. Ensure the query is optimized and efficient
+9. CRITICAL: For charts (bar, pie, line), ALWAYS return at least 2 columns:
+   - First column: category/label (e.g., platform name, meal time, user name)
+   - Second column: numeric value (e.g., COUNT(*), SUM(), AVG())
+10. CRITICAL: If the query asks "how many people use X, Y, or Z", you need to GROUP BY to get counts per category
+11. IMPORTANT: If a column contains comma-separated values (like "Zomato, Swiggy, Own App"), you need to count each value separately
+    - Use UNION ALL to create separate rows for each option:
+    
+    Example for "how many use Zomato, Swiggy, or Own App":
+    SELECT 'Zomato' as platform, COUNT(*) as count FROM data WHERE platform_column LIKE '%Zomato%'
+    UNION ALL
+    SELECT 'Swiggy' as platform, COUNT(*) as count FROM data WHERE platform_column LIKE '%Swiggy%'
+    UNION ALL
+    SELECT 'Own App' as platform, COUNT(*) as count FROM data WHERE platform_column LIKE '%Own App%'
+    
+    Example for "how many prefer breakfast, lunch, dinner":
+    SELECT 'Breakfast' as meal, COUNT(*) as count FROM data WHERE meal_column LIKE '%breakfast%'
+    UNION ALL
+    SELECT 'Lunch' as meal, COUNT(*) as count FROM data WHERE meal_column LIKE '%lunch%'
+    UNION ALL
+    SELECT 'Dinner' as meal, COUNT(*) as count FROM data WHERE meal_column LIKE '%dinner%'
 
 SQL Query:"""
 

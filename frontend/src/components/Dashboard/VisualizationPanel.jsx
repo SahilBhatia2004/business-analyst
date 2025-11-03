@@ -1,9 +1,22 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Plot from 'react-plotly.js';
-import { BarChart3, PieChart, LineChart, Table } from 'lucide-react';
+import { BarChart3, PieChart, LineChart, Table, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import ElementColorPicker from './ElementColorPicker';
+import ChartCustomizer from './ChartCustomizer';
 
-const VisualizationPanel = ({ data, colorTheme, fullScreen = false }) => {
+const VisualizationPanel = ({ 
+  data, 
+  colorTheme, 
+  fullScreen = false, 
+  onDataUpdate,
+  elementColors = {},
+  chartCustomizations = {},
+  onElementColorsChange,
+  onChartCustomizationsChange,
+  onDeleteVisualization
+}) => {
+  const [colorPicker, setColorPicker] = useState(null);
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -31,14 +44,69 @@ const VisualizationPanel = ({ data, colorTheme, fullScreen = false }) => {
     }
   };
 
+  const handleChartClick = (event, chartId) => {
+    if (event.points && event.points.length > 0) {
+      const point = event.points[0];
+      const pointIndex = point.pointIndex;
+      
+      setColorPicker({
+        chartId,
+        pointIndex,
+        x: event.event.clientX,
+        y: event.event.clientY,
+      });
+    }
+  };
+
+  const handleTableCellClick = (event, chartId, rowIndex, colIndex) => {
+    setColorPicker({
+      chartId,
+      pointIndex: `${rowIndex}-${colIndex}`,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  };
+
+  const handleColorSelect = (color) => {
+    if (!colorPicker) return;
+    
+    const key = `${colorPicker.chartId}-${colorPicker.pointIndex}`;
+    if (onElementColorsChange) {
+      onElementColorsChange({
+        ...elementColors,
+        [key]: color,
+      });
+    }
+    
+    setColorPicker(null);
+  };
+
+  const handleCustomizationUpdate = (chartId, customization) => {
+    if (onChartCustomizationsChange) {
+      onChartCustomizationsChange({
+        ...chartCustomizations,
+        [chartId]: customization,
+      });
+    }
+  };
+
   const renderVisualization = (item) => {
     // Debug: Log the item structure
     console.log('Rendering visualization:', item);
+    
+    const customization = chartCustomizations[item.id] || {};
+    const chartHeight = customization.height || 300;
+    
     const plotLayout = {
       paper_bgcolor: '#2a2a2a',
       plot_bgcolor: '#2a2a2a',
       font: { color: '#ffffff' },
-      margin: { t: 40, r: 20, b: 40, l: 60 },
+      margin: { 
+        t: 40, 
+        r: 20, 
+        b: 40 + (customization.xAxisOffset || 0), 
+        l: 60 + (customization.yAxisOffset || 0) 
+      },
       showlegend: true,
       legend: {
         font: { color: '#ffffff' },
@@ -47,11 +115,14 @@ const VisualizationPanel = ({ data, colorTheme, fullScreen = false }) => {
       xaxis: {
         gridcolor: '#3a3a3a',
         zerolinecolor: '#3a3a3a',
+        tickangle: customization.xAxisRotation || 0,
       },
       yaxis: {
         gridcolor: '#3a3a3a',
         zerolinecolor: '#3a3a3a',
+        tickangle: customization.yAxisRotation || 0,
       },
+      height: chartHeight,
     };
 
     const plotConfig = {
@@ -62,7 +133,13 @@ const VisualizationPanel = ({ data, colorTheme, fullScreen = false }) => {
 
     // Handle table type
     if (item.data.type === 'table' || item.type.toLowerCase().includes('table')) {
+      // item.data = {type: 'table', data: {columns: [...], rows: [...]}}
       const tableData = item.data.data || item.data;
+      
+      console.log('Table data:', tableData);
+      console.log('Columns:', tableData.columns);
+      console.log('Rows:', tableData.rows);
+      
       return (
         <div className="overflow-auto max-h-96">
           <table className="w-full text-sm">
@@ -78,11 +155,20 @@ const VisualizationPanel = ({ data, colorTheme, fullScreen = false }) => {
             <tbody>
               {tableData.rows?.map((row, i) => (
                 <tr key={i} className="border-b border-gray-700 hover:bg-gray-800">
-                  {row.map((cell, j) => (
-                    <td key={j} className="px-4 py-2 text-gray-300">
-                      {cell}
-                    </td>
-                  ))}
+                  {row.map((cell, j) => {
+                    const cellKey = `${item.id}-${i}-${j}`;
+                    const cellColor = elementColors[cellKey];
+                    return (
+                      <td 
+                        key={j} 
+                        className="px-4 py-2 text-gray-300 cursor-pointer transition-colors"
+                        style={cellColor ? { backgroundColor: cellColor, color: '#ffffff' } : {}}
+                        onClick={(e) => handleTableCellClick(e, item.id, i, j)}
+                      >
+                        {cell}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -109,9 +195,41 @@ const VisualizationPanel = ({ data, colorTheme, fullScreen = false }) => {
       
       // Apply theme color to chart
       const themedData = { ...chartData };
-      if (themedData.marker && colorTheme.chartColor) {
+      
+      // Apply individual element colors if they exist
+      if (chartType === 'pie') {
+        // Pie charts use labels/values and marker.colors (plural)
+        const dataLength = themedData.labels?.length || themedData.values?.length || 0;
+        if (dataLength > 0) {
+          const colors = [];
+          for (let i = 0; i < dataLength; i++) {
+            const key = `${item.id}-${i}`;
+            colors.push(elementColors[key] || (themedData.marker?.colors?.[i] || colorTheme.chartColor));
+          }
+          
+          if (themedData.marker) {
+            themedData.marker = { ...themedData.marker, colors: colors };
+          } else {
+            themedData.marker = { colors: colors };
+          }
+        }
+      } else if (themedData.x && themedData.y) {
+        // Bar, line, scatter charts use x/y and marker.color (singular for array)
+        const colors = [];
+        for (let i = 0; i < themedData.x.length; i++) {
+          const key = `${item.id}-${i}`;
+          colors.push(elementColors[key] || colorTheme.chartColor);
+        }
+        
+        if (themedData.marker) {
+          themedData.marker = { ...themedData.marker, color: colors };
+        } else {
+          themedData.marker = { color: colors };
+        }
+      } else if (themedData.marker && colorTheme.chartColor) {
         themedData.marker = { ...themedData.marker, color: colorTheme.chartColor };
       }
+      
       if (themedData.line && colorTheme.chartColor) {
         themedData.line = { ...themedData.line, color: colorTheme.chartColor };
       }
@@ -141,6 +259,7 @@ const VisualizationPanel = ({ data, colorTheme, fullScreen = false }) => {
         config={plotConfig}
         style={{ width: '100%', height: '100%' }}
         useResizeHandler={true}
+        onClick={(event) => handleChartClick(event, item.id)}
       />
     );
   };
@@ -158,14 +277,33 @@ const VisualizationPanel = ({ data, colorTheme, fullScreen = false }) => {
             }}
           >
             {/* Card Header */}
-            <div className="p-4 border-b flex items-center gap-3 flex-shrink-0" style={{ borderColor: colorTheme.border }}>
-              <div className="text-green-400">
-                {getChartIcon(item.type)}
+            <div className="p-4 border-b flex-shrink-0" style={{ borderColor: colorTheme.border }}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="text-green-400">
+                  {getChartIcon(item.type)}
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-white">{item.title}</h3>
+                  <p className="text-xs text-gray-400">{item.type}</p>
+                </div>
+                {onDeleteVisualization && (
+                  <button
+                    onClick={() => onDeleteVisualization(item.id)}
+                    className="text-red-400 hover:text-red-300 transition-colors p-2"
+                    title="Delete visualization"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-white">{item.title}</h3>
-                <p className="text-xs text-gray-400">{item.type}</p>
-              </div>
+              {/* Chart Customizer - only show for charts, not tables */}
+              {!item.type.toLowerCase().includes('table') && (
+                <ChartCustomizer
+                  chartId={item.id}
+                  customization={chartCustomizations[item.id] || {}}
+                  onUpdate={handleCustomizationUpdate}
+                />
+              )}
             </div>
 
             {/* Chart Area */}
@@ -194,6 +332,21 @@ const VisualizationPanel = ({ data, colorTheme, fullScreen = false }) => {
           </div>
         ))}
       </div>
+      
+      {/* Color Picker Overlay */}
+      {colorPicker && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setColorPicker(null)}
+          />
+          <ElementColorPicker
+            position={colorPicker}
+            onColorSelect={handleColorSelect}
+            onClose={() => setColorPicker(null)}
+          />
+        </>
+      )}
     </div>
   );
 };

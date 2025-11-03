@@ -1,9 +1,13 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, BarChart3, Brain, Zap, Shield, TrendingUp, MessageSquare, FileSpreadsheet, Palette, ArrowRight, LogIn } from 'lucide-react';
+import { Sparkles, BarChart3, Brain, Zap, Shield, TrendingUp, MessageSquare, FileSpreadsheet, Palette, ArrowRight, LogIn, Play } from 'lucide-react';
 
 const HomePage = () => {
   const navigate = useNavigate();
+  
+  const openDemoVideo = () => {
+    window.open('https://www.loom.com/share/6762589925ea46108001f4e7f4db3992', '_blank');
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900">
@@ -16,6 +20,13 @@ const HomePage = () => {
                 <Sparkles className="w-6 h-6 text-white" />
               </div>
               <span className="text-2xl font-bold text-white">AI Analyst</span>
+              <button
+                onClick={openDemoVideo}
+                className="ml-4 px-4 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 rounded-lg font-medium transition-all flex items-center gap-2"
+              >
+                <Play className="w-4 h-4" />
+                Watch Demo
+              </button>
             </div>
             <div className="flex items-center gap-3">
               <button

@@ -7,6 +7,7 @@ import Login from './components/Auth/Login';
 import Signup from './components/Auth/Signup';
 import Dashboard from './components/Dashboard/Dashboard';
 import UpgradePage from './components/Dashboard/UpgradePage';
+import SharedDashboard from './components/Dashboard/SharedDashboard';
 
 function App() {
   const [session, setSession] = useState(null);
@@ -46,6 +47,7 @@ function App() {
         <Route path="/signup" element={!session ? <Signup /> : <Navigate to="/dashboard" />} />
         <Route path="/dashboard" element={session ? <Dashboard /> : <Navigate to="/pricing" />} />
         <Route path="/upgrade" element={session ? <UpgradePage /> : <Navigate to="/pricing" />} />
+        <Route path="/shared/:shareId" element={<SharedDashboard />} />
       </Routes>
     </Router>
   );

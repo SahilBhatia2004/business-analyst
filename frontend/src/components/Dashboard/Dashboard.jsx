@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../config/supabase';
 import Chatbot from './Chatbot';
 import ChatHistory from './ChatHistory';
@@ -7,9 +7,11 @@ import Header from './Header';
 import UploadModal from './UploadModal';
 import ColorGrid from './ColorGrid';
 import DashboardHistory from './DashboardHistory';
-import { LogOut, Upload, Palette, Save, Presentation, Trash2 } from 'lucide-react';
+import { LogOut, Upload, Palette, Save, Presentation, Trash2, Share2 } from 'lucide-react';
+import html2canvas from 'html2canvas';
 
 const Dashboard = () => {
+  const dashboardRef = useRef(null);
   const [user, setUser] = useState(null);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -32,6 +34,9 @@ const Dashboard = () => {
     accent: '#22c55e',
     chartColor: '#4ade80',
   });
+  const [savedTheme, setSavedTheme] = useState(null);
+  const [elementColors, setElementColors] = useState({});
+  const [chartCustomizations, setChartCustomizations] = useState({});
 
   useEffect(() => {
     // Get current user
@@ -101,6 +106,14 @@ const Dashboard = () => {
     }
     if (dashboard.theme) {
       setColorTheme(dashboard.theme);
+      setSavedTheme(dashboard.theme); // Save the loaded theme
+    }
+    // Restore element colors and chart customizations
+    if (dashboard.elementColors) {
+      setElementColors(dashboard.elementColors);
+    }
+    if (dashboard.chartCustomizations) {
+      setChartCustomizations(dashboard.chartCustomizations);
     }
     // Restore associated chat if exists
     if (dashboard.chatMessages) {
@@ -143,6 +156,8 @@ const Dashboard = () => {
       const dashboardJson = JSON.stringify({
         data: dashboardData,
         theme: colorTheme,
+        elementColors: elementColors,
+        chartCustomizations: chartCustomizations,
         chatMessages: chatMessages,
         chatId: currentChatId,
         timestamp: new Date().toISOString(),
@@ -159,6 +174,7 @@ const Dashboard = () => {
       if (error) throw error;
 
       setCurrentDashboardId(`dashboards/${user.id}/${fileName}`);
+      setSavedTheme(colorTheme); // Save the current theme
       alert('Dashboard saved successfully!');
       
       // Trigger refresh of dashboard history
@@ -171,6 +187,12 @@ const Dashboard = () => {
 
   const addVisualization = (visualization) => {
     setDashboardData(prev => [...prev, visualization]);
+  };
+
+  const handleDeleteVisualization = (visualizationId) => {
+    if (window.confirm('Delete this visualization?')) {
+      setDashboardData(prev => prev.filter(item => item.id !== visualizationId));
+    }
   };
 
   const handleClearDashboard = () => {
@@ -212,12 +234,92 @@ const Dashboard = () => {
     setCurrentDashboardId(null);
   };
 
+  const handleExitPresentation = async () => {
+    // Auto-save before exiting presentation mode
+    if (currentDashboardId) {
+      try {
+        const dashboardJson = JSON.stringify({
+          data: dashboardData,
+          theme: colorTheme,
+          elementColors: elementColors,
+          chartCustomizations: chartCustomizations,
+          chatMessages: chatMessages,
+          chatId: currentChatId,
+          timestamp: new Date().toISOString(),
+        });
+
+        const blob = new Blob([dashboardJson], { type: 'application/json' });
+
+        // Update existing dashboard
+        const { error } = await supabase.storage
+          .from('files')
+          .update(currentDashboardId, blob, {
+            upsert: true
+          });
+
+        if (error) {
+          // If update fails, try upload
+          const fileName = currentDashboardId.split('/').pop();
+          await supabase.storage
+            .from('files')
+            .upload(currentDashboardId, blob, {
+              upsert: true
+            });
+        }
+
+        console.log('Dashboard auto-saved on presentation exit');
+      } catch (error) {
+        console.error('Error auto-saving dashboard:', error);
+      }
+    }
+    
+    setPresentationMode(false);
+  };
+
+  const handleShareDashboard = async () => {
+    try {
+      // Create a unique share ID
+      const shareId = `${user.id}_${Date.now()}`;
+      
+      // Prepare dashboard data for sharing
+      const dashboardJson = JSON.stringify({
+        data: dashboardData,
+        theme: colorTheme,
+        elementColors: elementColors,
+        chartCustomizations: chartCustomizations,
+        timestamp: new Date().toISOString(),
+      });
+
+      const blob = new Blob([dashboardJson], { type: 'application/json' });
+
+      // Upload to shared folder in Supabase storage
+      const { data, error } = await supabase.storage
+        .from('files')
+        .upload(`shared/${shareId}.json`, blob, {
+          contentType: 'application/json',
+          upsert: false
+        });
+
+      if (error) throw error;
+
+      // Generate shareable link
+      const shareUrl = `${window.location.origin}/shared/${shareId}`;
+      
+      // Copy to clipboard
+      await navigator.clipboard.writeText(shareUrl);
+      
+      alert(`Shareable link copied to clipboard!\n\n${shareUrl}\n\nAnyone with this link can view your dashboard in presentation mode.`);
+    } catch (error) {
+      console.error('Error sharing dashboard:', error);
+      alert('Failed to create shareable link. Please try again.');
+    }
+  };
 
   if (presentationMode) {
     return (
       <div className="min-h-screen" style={{ backgroundColor: colorTheme.background }}>
         <button
-          onClick={() => setPresentationMode(false)}
+          onClick={handleExitPresentation}
           className="fixed top-4 right-4 z-50 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg"
         >
           Exit Presentation
@@ -226,6 +328,11 @@ const Dashboard = () => {
           data={dashboardData}
           colorTheme={colorTheme}
           fullScreen={true}
+          elementColors={elementColors}
+          chartCustomizations={chartCustomizations}
+          onElementColorsChange={setElementColors}
+          onChartCustomizationsChange={setChartCustomizations}
+          onDeleteVisualization={handleDeleteVisualization}
         />
       </div>
     );
@@ -297,6 +404,14 @@ const Dashboard = () => {
                     Save
                   </button>
                   <button
+                    onClick={handleShareDashboard}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                    title="Generate shareable link"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    Share
+                  </button>
+                  <button
                     onClick={handleClearDashboard}
                     className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
                     title="Clear current dashboard"
@@ -334,10 +449,15 @@ const Dashboard = () => {
           )}
 
           {/* Visualization Area */}
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto" ref={dashboardRef}>
             <VisualizationPanel
               data={dashboardData}
               colorTheme={colorTheme}
+              elementColors={elementColors}
+              chartCustomizations={chartCustomizations}
+              onElementColorsChange={setElementColors}
+              onChartCustomizationsChange={setChartCustomizations}
+              onDeleteVisualization={handleDeleteVisualization}
             />
           </div>
         </div>
